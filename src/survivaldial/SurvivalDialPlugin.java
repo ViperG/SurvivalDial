@@ -8,7 +8,7 @@ import org.lwjgl.input.Keyboard;
 import org.json.JSONObject;
 
 public class SurvivalDialPlugin extends BaseModPlugin {
-    @Override public void onApplicationLoad() throws Exception { SettingsModel.initialize(); }
+    @Override public void onApplicationLoad() throws Exception { SettingsModel.initialize(); CustomPresets.load(); }
     @Override public void onNewGame() {
         try {
             JSONObject profile=SettingsModel.pending==null ? SettingsModel.baseline() : SettingsModel.copy(SettingsModel.pending);

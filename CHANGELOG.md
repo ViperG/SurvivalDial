@@ -1,5 +1,11 @@
 # Changelog
 
+## Unreleased
+
+- Add **Enter exact value...** for numeric settings, with support for single values, per-hull-size values, and the retirement range.
+- Add reusable custom presets saved in `saves/common/survival_dial_custom_presets.json.data`, shared across campaigns.
+- Add validation for custom preset names and values, plus save/load/delete tests.
+
 ## 0.1.2 - clouds and hazards
 
 - Add new-campaign hyperspace cloud coverage targets: Easy 50%, Medium 75%, Hard 100%, Insane 125%, with an optional 0-125% slider.

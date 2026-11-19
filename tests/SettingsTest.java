@@ -2,6 +2,7 @@ package survivaldial;
 
 import com.fs.starfarer.api.*;
 import com.fs.starfarer.api.campaign.*;
+import com.fs.starfarer.api.ui.*;
 import java.lang.reflect.*;
 import java.nio.file.*;
 import java.util.*;
@@ -17,6 +18,24 @@ public class SettingsTest {
         check(rejected,message);
     }
     @SuppressWarnings("unchecked") private static <T>T proxy(Class<T> type,InvocationHandler h){return (T)Proxy.newProxyInstance(type.getClassLoader(),new Class<?>[]{type},h);}
+    private static void dialogText(CustomDialogDelegate delegate,String value) throws Exception {
+        final String[] text={""};
+        TextFieldAPI field=proxy(TextFieldAPI.class,(o,m,a)->{
+            if(m.getName().equals("setText")){text[0]=(String)a[0];return null;}
+            if(m.getName().equals("getText"))return text[0];
+            return null;
+        });
+        TooltipMakerAPI tooltip=proxy(TooltipMakerAPI.class,(o,m,a)->m.getName().equals("addTextField")?field:null);
+        PositionAPI position=proxy(PositionAPI.class,(o,m,a)->m.getName().equals("inTL")?o:null);
+        CustomPanelAPI panel=proxy(CustomPanelAPI.class,(o,m,a)->{
+            if(m.getName().equals("createUIElement"))return tooltip;
+            if(m.getName().equals("addUIElement"))return position;
+            return null;
+        });
+        delegate.createCustomDialog(panel,proxy(CustomDialogDelegate.CustomDialogCallback.class,(o,m,a)->null));
+        field.setText(value);
+        delegate.customDialogConfirm();
+    }
     public static void main(String[] args) throws Exception {
         String json=Files.readString(Path.of(args[0]));
         JSONArray catalog=new JSONArray(json);
@@ -25,10 +44,15 @@ public class SettingsTest {
         settings.put("crewSalary",10);
         for(int i=0;i<catalog.length();i++){JSONObject row=catalog.getJSONObject(i);settings.put(row.getString("key"),row.get("default"));}
         final int[] resets={0}; final boolean[] fail={false};
+        final Map<String,String> commonFiles=new HashMap<String,String>();
         Global.setSettings(proxy(SettingsAPI.class,(o,m,a)->{
             if(m.getName().equals("loadText"))return json;
             if(m.getName().equals("getSettingsJSON"))return settings;
             if(m.getName().equals("resetCached")){resets[0]++;if(fail[0]){fail[0]=false;throw new IllegalStateException("injected cache failure");}return null;}
+            if(m.getName().equals("fileExistsInCommon"))return commonFiles.containsKey((String)a[0]);
+            if(m.getName().equals("readTextFileFromCommon")){String text=commonFiles.get((String)a[0]);if(text==null)throw new java.io.IOException("missing common file");return text;}
+            if(m.getName().equals("writeTextFileToCommon")){commonFiles.put((String)a[0],(String)a[1]);return null;}
+            if(m.getName().equals("deleteTextFileFromCommon")){commonFiles.remove((String)a[0]);return null;}
             return null;
         }));
         Map<String,Object> persistent=new HashMap<String,Object>();
@@ -40,6 +64,8 @@ public class SettingsTest {
             return null;
         }));
         SettingsModel.initialize();
+        CustomPresets.load();
+        check(CustomPresets.all().isEmpty(),"no custom presets initially");
         int beforeNormal=resets[0];extended[0]=false;new SurvivalDialPlugin().onGameLoad(false);
         check(resets[0]==beforeNormal && hotkeys[0]==0 && persistent.isEmpty(),"Normal-only session has no overrides, hotkeys, or save data");
         extended[0]=true;
@@ -118,10 +144,12 @@ public class SettingsTest {
             return null;
         });
         boolean[] dismissed={false};
+        final CustomDialogDelegate[] custom={null};
         InteractionDialogAPI ui=proxy(InteractionDialogAPI.class,(o,m,a)->{
             if(m.getName().equals("getOptionPanel"))return options;
             if(m.getName().equals("getTextPanel"))return text;
             if(m.getName().equals("dismiss")){dismissed[0]=true;return null;}
+            if(m.getName().equals("showCustomDialog")){custom[0]=(CustomDialogDelegate)a[2];return null;}
             return null;
         });
         dialog.init(ui);dialog.optionSelected(null,"preset:Insane");dialog.optionSelected(null,"cancel");
@@ -146,7 +174,7 @@ public class SettingsTest {
         SettingsDialog simple=new SettingsDialog(hard,true,p->{});simple.init(ui);
         check(labels.size()==4 && labels.containsKey("customize") && labels.containsKey("presets"),"home has four choices, no settings dump");
         simple.optionSelected(null,"presets");
-        check(labels.size()==5 && labels.get("preset:Hard").contains("default"),"preset list has four explained choices and Back");
+        check(labels.size()==6 && labels.get("preset:Hard").contains("default") && labels.containsKey("savepreset"),"preset list has four presets, save option, and Back");
         simple.optionSelected(null,"home");simple.optionSelected(null,"customize");
         check(labels.containsKey("all") && labels.size()<=8,"common list stays short with optional all-settings route");
         check(labels.containsKey("edit:ext_shipBuyPriceMult"),"ship prices are easy to find");
@@ -190,6 +218,88 @@ public class SettingsTest {
         check(cloudPicked[0].getInt(CloudCoverage.KEY)==60,"custom cloud percentage accepted during new-game setup");
         customClouds.put(CloudCoverage.KEY,126);rejects(()->SettingsModel.validate(customClouds),"coverage above slider limit rejected");
         customClouds.put(CloudCoverage.KEY,-1);rejects(()->SettingsModel.validate(customClouds),"negative coverage rejected");
+        SettingsModel.apply(hard);
+        SettingsDialog exactDialog=new SettingsDialog(hard,false,null);exactDialog.init(ui);
+        selectors.clear();custom[0]=null;
+        exactDialog.optionSelected(null,"edit:ext_weaponPriceMult");
+        check(labels.containsKey("exact"),"numeric setting offers exact value entry");
+        exactDialog.optionSelected(null,"exact");
+        check(custom[0]!=null,"exact value dialog opens");
+        dialogText(custom[0],"0.75");
+        check(selectors.get("value0")==0.75f,"exact single value sets selector");
+        exactDialog.optionSelected(null,"keep");exactDialog.optionSelected(null,"apply");
+        check(settings.getDouble("ext_weaponPriceMult")==0.75,"exact single value applies");
+        check(new JSONObject((String)persistent.get(SettingsModel.SAVE_KEY)).getDouble("ext_weaponPriceMult")==0.75,"exact single value persists");
+
+        exactDialog=new SettingsDialog(hard,false,null);exactDialog.init(ui);
+        selectors.clear();custom[0]=null;
+        exactDialog.optionSelected(null,"edit:ext_fuelUseMult");exactDialog.optionSelected(null,"exact");
+        dialogText(custom[0],"1, 1, 1.25, 1.5");
+        check(selectors.get("value0")==1f && selectors.get("value1")==1f && selectors.get("value2")==1.25f && selectors.get("value3")==1.5f,"exact hull-size values set all selectors");
+        exactDialog.optionSelected(null,"keep");exactDialog.optionSelected(null,"apply");
+        JSONArray fuel=settings.getJSONArray("ext_fuelUseMult");
+        check(fuel.getDouble(2)==1.25 && fuel.getDouble(3)==1.5,"exact hull-size values apply");
+
+        exactDialog=new SettingsDialog(hard,true,null);exactDialog.init(ui);
+        selectors.clear();custom[0]=null;
+        exactDialog.optionSelected(null,"edit:ext_retirementMinCycles");exactDialog.optionSelected(null,"exact");
+        dialogText(custom[0],"40, 45");
+        check(selectors.get("value0")==40f && selectors.get("value1")==45f,"exact retirement range sets both selectors");
+        exactDialog.optionSelected(null,"keep");exactDialog.optionSelected(null,"apply");
+        check(settings.getDouble("ext_retirementMinCycles")==40 && settings.getDouble("ext_retirementMaxCycles")==45,"exact retirement range applies");
+
+        exactDialog=new SettingsDialog(hard,false,null);exactDialog.init(ui);
+        selectors.clear();custom[0]=null;
+        exactDialog.optionSelected(null,"edit:ext_weaponPriceMult");exactDialog.optionSelected(null,"exact");
+        dialogText(custom[0],"not-a-number");
+        check(paragraphs.stream().anyMatch(p->p.contains("Could not use value")),"invalid exact value is explained");
+        check(selectors.get("value0")==10f,"invalid exact value leaves selector unchanged");
+        exactDialog.optionSelected(null,"discardItem");
+        JSONObject customProfile=SettingsModel.copy(hard);customProfile.put("ext_fuelPriceMult",4.25);
+        CustomPresets.add("My test",customProfile);
+        check(commonFiles.containsKey(CustomPresets.FILE),"custom preset file written");
+        check(CustomPresets.find("my TEST")!=null,"custom preset lookup is case-insensitive");
+        check(CustomPresets.all().size()==1,"one custom preset saved");
+        JSONObject fromCustom=CustomPresets.apply("My test",hard,true);
+        check(fromCustom.getDouble("ext_fuelPriceMult")==4.25,"custom preset applies saved values");
+        JSONObject liveCustom=SettingsModel.copy(hard);liveCustom.put("ext_retirementMinCycles",10);liveCustom.put("ext_retirementMaxCycles",20);
+        JSONObject appliedLive=CustomPresets.apply("My test",liveCustom,false);
+        check(appliedLive.getDouble("ext_fuelPriceMult")==4.25,"custom preset applies live values");
+        check(appliedLive.getDouble("ext_retirementMinCycles")==10 && appliedLive.getDouble("ext_retirementMaxCycles")==20,"custom preset preserves new-game-only values in a campaign");
+        CustomPresets.load();
+        check(CustomPresets.find("My test")!=null,"custom preset reloads from common file");
+        rejects(()->CustomPresets.add("Hard",hard),"built-in preset name rejected");
+        JSONObject replacement=SettingsModel.copy(hard);replacement.put("ext_fuelPriceMult",4.5);
+        check(CustomPresets.add("my TEST",replacement),"saving an existing name updates the preset");
+        check(CustomPresets.all().size()==1,"updating a preset does not create a duplicate");
+        check(CustomPresets.find("My test").profile.getDouble("ext_fuelPriceMult")==4.5,"update replaces the stored profile");
+
+        SettingsDialog presetDialog=new SettingsDialog(hard,true,null);presetDialog.init(ui);
+        presetDialog.optionSelected(null,"presets");
+        check(labels.containsKey("custompresets") && labels.containsKey("savepreset"),"presets menu exposes saved presets and save action");
+        presetDialog.optionSelected(null,"custompresets");
+        check(labels.containsKey("custompreset:My test"),"custom preset list shows the saved name");
+        check(!labels.containsKey("savepreset"),"custom preset list does not duplicate the save action");
+        presetDialog.optionSelected(null,"custompreset:My test");
+        check(labels.get("presets").contains("My test"),"loading a custom preset labels it on the home screen");
+        presetDialog.optionSelected(null,"presets");presetDialog.optionSelected(null,"custompresets");presetDialog.optionSelected(null,"deletepresets");
+        check(labels.containsKey("deletepreset:My test"),"delete list shows the saved name");
+        presetDialog.optionSelected(null,"deletepreset:My test");
+        check(CustomPresets.find("My test")==null,"custom preset deleted");
+        check(!commonFiles.get(CustomPresets.FILE).contains("My test"),"deleted preset removed from common file");
+
+        presetDialog=new SettingsDialog(hard,true,null);presetDialog.init(ui);
+        presetDialog.optionSelected(null,"presets");custom[0]=null;presetDialog.optionSelected(null,"savepreset");
+        check(custom[0]!=null,"save preset dialog opens");
+        dialogText(custom[0],"UI preset");
+        check(CustomPresets.find("UI preset")!=null,"save preset dialog writes the preset");
+        check(labels.containsKey("custompreset:UI preset"),"saved preset appears in the custom list");
+        presetDialog.optionSelected(null,"presets");custom[0]=null;presetDialog.optionSelected(null,"savepreset");
+        dialogText(custom[0],"ui PRESET");
+        check(CustomPresets.all().size()==1,"saving an existing name updates instead of duplicating");
+        check(paragraphs.stream().anyMatch(p->p.contains("Updated custom preset")),"duplicate save reports an update");
+        presetDialog.optionSelected(null,"deletepresets");presetDialog.optionSelected(null,"deletepreset:UI preset");
+        check(CustomPresets.all().isEmpty(),"custom preset list can be emptied");
         assertions+=CloudCoverageTest.run();
         if(args.length>1)Files.writeString(Path.of(args[1]),table);
         System.out.println("PASS: "+assertions+" assertions (catalog, presets, validation, rollback, save isolation, native dialog Apply/Cancel)");
