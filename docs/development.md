@@ -10,7 +10,7 @@ Use the game's Java 17 JDK and libraries, which are not redistributed:
 powershell -NoProfile -ExecutionPolicy Bypass -File tools/build.ps1 -StarsectorPath 'C:\Program Files (x86)\Fractal Softworks\Starsector' -Package
 ```
 
-The script compiles, runs behavioral tests, generates the README comparison table from the actual preset functions, and packages `dist/SurvivalDial-0.1.2.zip`. JAR publication happens after tests. The ZIP allowlist includes only mod metadata, compiled mod code, its data, and player documentation. The standalone project is linked into the local game's mods directory by a Windows junction; players do not need a junction.
+The script compiles, runs behavioral tests, generates the README comparison table from the actual preset functions, and packages `dist/SurvivalDial-0.1.3.zip`. JAR publication happens after tests. The ZIP allowlist includes only mod metadata, compiled mod code, its data, and player documentation. The standalone project is linked into the local game's mods directory by a Windows junction; players do not need a junction.
 
 Use this directory as the GitHub repository root. Build outputs are ignored. After the [playtest checklist](playtest.md), create the release and attach the generated ZIP. GitHub's automatic source archive is not the installable package. Nothing has been published automatically.
 

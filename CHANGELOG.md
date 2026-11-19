@@ -1,10 +1,11 @@
 # Changelog
 
-## Unreleased
+## 0.1.3 - exact values and custom presets
 
 - Add **Enter exact value...** for numeric settings, with support for single values, per-hull-size values, and the retirement range.
 - Add reusable custom presets saved in `saves/common/survival_dial_custom_presets.json.data`, shared across campaigns.
 - Add validation for custom preset names and values, plus save/load/delete tests.
+- Preserve pending slider adjustments when exact input is invalid, and prefill exact entry from the current slider values.
 
 ## 0.1.2 - clouds and hazards
 

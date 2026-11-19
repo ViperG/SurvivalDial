@@ -47,7 +47,7 @@ The **Presets** screen can save the settings currently staged in the editor as a
 
 ## Install
 
-1. Download **SurvivalDial-0.1.2.zip** from this repository's **Releases**.
+1. Download **SurvivalDial-0.1.3.zip** from this repository's **Releases**.
 2. Extract it into `Starsector/mods` so you have `mods/SurvivalDial/mod_info.json`.
 3. Enable **Survival Dial** in the launcher and start the game.
 

@@ -18,7 +18,7 @@ public class SettingsTest {
         check(rejected,message);
     }
     @SuppressWarnings("unchecked") private static <T>T proxy(Class<T> type,InvocationHandler h){return (T)Proxy.newProxyInstance(type.getClassLoader(),new Class<?>[]{type},h);}
-    private static void dialogText(CustomDialogDelegate delegate,String value) throws Exception {
+    private static String dialogText(CustomDialogDelegate delegate,String value) throws Exception {
         final String[] text={""};
         TextFieldAPI field=proxy(TextFieldAPI.class,(o,m,a)->{
             if(m.getName().equals("setText")){text[0]=(String)a[0];return null;}
@@ -33,8 +33,10 @@ public class SettingsTest {
             return null;
         });
         delegate.createCustomDialog(panel,proxy(CustomDialogDelegate.CustomDialogCallback.class,(o,m,a)->null));
+        String initial=text[0];
         field.setText(value);
         delegate.customDialogConfirm();
+        return initial;
     }
     public static void main(String[] args) throws Exception {
         String json=Files.readString(Path.of(args[0]));
@@ -44,6 +46,7 @@ public class SettingsTest {
         settings.put("crewSalary",10);
         for(int i=0;i<catalog.length();i++){JSONObject row=catalog.getJSONObject(i);settings.put(row.getString("key"),row.get("default"));}
         final int[] resets={0}; final boolean[] fail={false};
+        final boolean[] failCommonWrite={false};
         final Map<String,String> commonFiles=new HashMap<String,String>();
         Global.setSettings(proxy(SettingsAPI.class,(o,m,a)->{
             if(m.getName().equals("loadText"))return json;
@@ -51,7 +54,7 @@ public class SettingsTest {
             if(m.getName().equals("resetCached")){resets[0]++;if(fail[0]){fail[0]=false;throw new IllegalStateException("injected cache failure");}return null;}
             if(m.getName().equals("fileExistsInCommon"))return commonFiles.containsKey((String)a[0]);
             if(m.getName().equals("readTextFileFromCommon")){String text=commonFiles.get((String)a[0]);if(text==null)throw new java.io.IOException("missing common file");return text;}
-            if(m.getName().equals("writeTextFileToCommon")){commonFiles.put((String)a[0],(String)a[1]);return null;}
+            if(m.getName().equals("writeTextFileToCommon")){if(failCommonWrite[0])throw new java.io.IOException("injected preset write failure");commonFiles.put((String)a[0],(String)a[1]);return null;}
             if(m.getName().equals("deleteTextFileFromCommon")){commonFiles.remove((String)a[0]);return null;}
             return null;
         }));
@@ -254,6 +257,14 @@ public class SettingsTest {
         dialogText(custom[0],"not-a-number");
         check(paragraphs.stream().anyMatch(p->p.contains("Could not use value")),"invalid exact value is explained");
         check(selectors.get("value0")==10f,"invalid exact value leaves selector unchanged");
+        selectors.put("value0",7f);
+        exactDialog.optionSelected(null,"exact");
+        check(dialogText(custom[0],"not-a-number").equals("7"),"exact entry starts with the current slider value");
+        check(selectors.get("value0")==7f,"invalid typed input preserves unsaved slider adjustment");
+        exactDialog.optionSelected(null,"exact");dialogText(custom[0],"NaN");
+        check(selectors.get("value0")==7f,"non-finite typed input preserves selector");
+        exactDialog.optionSelected(null,"exact");dialogText(custom[0],"999");
+        check(selectors.get("value0")==7f,"out-of-range typed input preserves selector");
         exactDialog.optionSelected(null,"discardItem");
         JSONObject customProfile=SettingsModel.copy(hard);customProfile.put("ext_fuelPriceMult",4.25);
         CustomPresets.add("My test",customProfile);
@@ -274,6 +285,15 @@ public class SettingsTest {
         check(CustomPresets.all().size()==1,"updating a preset does not create a duplicate");
         check(CustomPresets.find("My test").profile.getDouble("ext_fuelPriceMult")==4.5,"update replaces the stored profile");
 
+        String savedBeforeFailure=commonFiles.get(CustomPresets.FILE);
+        failCommonWrite[0]=true;
+        boolean saveFailed=false;try{CustomPresets.add("My test",hard);}catch(java.io.IOException expected){saveFailed=true;}
+        check(saveFailed && CustomPresets.find("My test").profile.getDouble("ext_fuelPriceMult")==4.5,"failed update preserves previous custom preset");
+        boolean addFailed=false;try{CustomPresets.add("New failed preset",hard);}catch(java.io.IOException expected){addFailed=true;}
+        check(addFailed && CustomPresets.find("New failed preset")==null,"failed creation leaves no phantom preset");
+        boolean deleteFailed=false;try{CustomPresets.remove("My test");}catch(java.io.IOException expected){deleteFailed=true;}
+        check(deleteFailed && CustomPresets.find("My test")!=null && commonFiles.get(CustomPresets.FILE).equals(savedBeforeFailure),"failed deletion preserves memory and saved preset file");
+        failCommonWrite[0]=false;
         SettingsDialog presetDialog=new SettingsDialog(hard,true,null);presetDialog.init(ui);
         presetDialog.optionSelected(null,"presets");
         check(labels.containsKey("custompresets") && labels.containsKey("savepreset"),"presets menu exposes saved presets and save action");

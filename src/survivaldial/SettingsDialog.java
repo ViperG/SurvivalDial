@@ -137,9 +137,7 @@ public final class SettingsDialog implements InteractionDialogPlugin {
         StringBuilder text=new StringBuilder();
         for(int i=0;i<count;i++){
             if(i>0)text.append(", ");
-            if(retirementRange())text.append(SettingsPresentation.number(draft.getDouble(i==0?"ext_retirementMinCycles":"ext_retirementMaxCycles")));
-            else if(editing.type.equals("array"))text.append(SettingsPresentation.number(draft.getJSONArray(editing.key).getDouble(i)));
-            else text.append(SettingsPresentation.number(draft.getDouble(editing.key)));
+            text.append(SettingsPresentation.number(slider(i)));
         }
         return text.toString();
     }
@@ -172,7 +170,7 @@ public final class SettingsDialog implements InteractionDialogPlugin {
             public void customDialogConfirm(){
                 try{applyExact(field==null?"":field.getText(),count);}
                 catch(Exception e){
-                    try{render();}catch(Exception ignored){}
+                    // Validation has not changed the selectors; keep any unsaved slider edits.
                     dialog.getTextPanel().addPara("Could not use value: "+e.getMessage()+". Use dots for decimals and separate multiple values with commas.");
                 }
             }
